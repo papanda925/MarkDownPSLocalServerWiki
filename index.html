@@ -1,0 +1,499 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <script src="./core/marked.js"></script>
+    <link rel="stylesheet" href="./core/github-markdown.css">
+    <style type="text/css">
+        .Button {
+            position: relative;
+            display: inline-block;
+            padding: 0.25em 0.5em;
+            text-decoration: none;
+            color: #FFF;
+            background: #fd9535;
+            /*色*/
+            border-radius: 4px;
+            /*角の丸み*/
+            box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.2), inset 0 -2px 0 rgba(0, 0, 0, 0.05);
+            font-weight: bold;
+            border: solid 2px #d27d00;
+            /*線色*/
+        }
+
+        .Button:active {
+            /*押したとき*/
+            box-shadow: 0 0 2px rgba(0, 0, 0, 0.30);
+        }
+
+        .test {
+            white-space: pre-wrap;
+            border: 1px solid;
+            width: 220px;
+        }
+        </style>
+        <title>PowershellLocallWiki</title>
+</head>
+<body onload="javascript:Open('トップページ')">
+    <table width="100%" border="0">
+        <tr valign="top">
+            <td class="style1">
+                <h1 id="headerH1">トップページ</h1>
+            </td>
+            <td id="TDheaderH1" align="right">
+                <span><a href="#" class="Button" id="TopPage">トップページ</a></span>
+                <span><a href="#" class="Button" id="Edit">編集</a></span>
+                <span><a href="#" class="Button" id="ALLPage">ページ一覧</a></span>
+                <input id="Text1" type="text" />
+                <span><a href="#" class="Button" id="FindPage">検索</a></span>
+            </td>
+        </tr>
+    </table>
+
+    <hr id=" br1" />
+    <div id="content"></div>
+    <span><a href="#" class="Button" id="Save" align="left">保存</a></span>
+    <hr id="br2" />
+    <div id="FileName" align="left"></div>
+    <div id="DateCreated" align="left"></div>
+    <div id="DateLastModified" align="left"></div>
+    <hr id="br3" />
+    <div id="history" align="left"></div>
+    <table width="100%" border="0">
+        <tr valign="bottom">
+            <td align="right">
+                <span>&nbsp;<input id="Text2" type="text" /> </span>
+                <span><a href="#" class="Button" id="NewPage">新規作成</a></span>
+                <span><a href="#" class="Button" id="ReNamePage">リネーム</a></span>
+                <span><a href="#" class="Button" id="DeletePage">削除</a></span>
+            </td>
+        </tr>
+    </table>
+    <table width="100%" border="0">
+        <tr valign="bottom">
+            <td align="right">
+                <span> <a href="#" class="Button" id="Larger">大きく</a></span>
+                <span> <a href="#" class="Button" id="Smaller">小さく</a></span>
+            </td>
+        </tr>
+    </table>
+    <div id="NewWorkStat"></div>
+</body>
+<script>
+    //グローバル変数
+    var xhr = new XMLHttpRequest();
+    xhr.timeout = 30000; //30000ミリ秒
+    var ClickName = null
+
+    //グローバル変数
+    var pageNameStack = new Array();
+    var x = 100;
+    function Larger() { x *= 1.2; Id('content').style.fontSize = x + '%'; }
+    function Smaller() { x /= 1.2; Id('content').style.fontSize = x + '%'; }
+
+    //エラーハンドリング
+    window.addEventListener('error', function (e) {
+        var stack = e.error.stack;
+        let message = e.error.toString();
+        if (stack) {
+            message += '\n' + stack;
+        }
+        let xhr = new XMLHttpRequest();
+        alert(message);
+      //  xhr.open('POST', '/log', true);
+      //  xhr.send(message);
+    });
+
+    //XMLHttpRequestのコールバック一式    
+    xhr.onloadstart = () => {
+        let Content = ClickName + " onloadstart:" + xhr.status;
+        Id('NewWorkStat').innerHTML = Content;
+    }
+    //XMLHttpRequestのコールバック　要の処理
+    xhr.onload = () => {
+        let ResultContent = '';
+         if("application/json" == xhr.getResponseHeader("Content-Type") )
+         {
+            JSONObject =  JSON.parse(xhr.responseText);
+            //サーバからJsonで受けたパラメータを取得、各種ButtonID毎に処理実行
+            content = String(JSONObject.content);
+            CreationTime = String(JSONObject.CreationTime);
+            LastWriteTime = String(JSONObject.LastWriteTime);
+            ButtonID = String(JSONObject.ButtonID);
+            PageName = String(JSONObject.PageName);
+            
+            if( ButtonID == 'Open')
+            {
+                //Markedのrendererを書き換え好みにlinkにする。
+                const renderer = new marked.Renderer();
+                const linkRenderer = renderer.link;
+                renderer.link = (href, title, text) => {
+                    let Result=''; 
+                    if (href.match(/^(mailto|http|https|ftp|file):*/ig)) {　 //リンクは別タブに出力　_blank追加
+
+                        const html = linkRenderer.call(renderer, href, title, text);
+                        const html_blank = html.replace(/^<a /, `<a target="_blank" rel="noreferrer noopener nofollow" `);
+                        Result = html_blank;
+                    }
+                    else if(href.match(/^\\/ig))　//windows 汎用命名規則 (UNC)対応　先頭が\をサーバとみなす。 
+                    {
+                        const html = linkRenderer.call(renderer, href, title, text);
+                        aa = href.replace(/\\/, "\\\\");
+                        href = aa.replace(/\\/g, "&#092;&#092;");                                                                   
+                        const OpenFolder = "<a href='javascript:OpenFolder(\"" + href + "\")'>" + text + "</a> ";
+                        Result = OpenFolder;
+                    }else if( href.match(/^[A-Z]/i)){ //Windows のファイルパス対応 C:\等　はフォルダとみなす
+                        aa = href.replace(/\\/g, "&#092;&#092;");
+                        const OpenLocalFolder = "<a href='javascript:OpenFolder(\"" + aa + "\")'>" + text + "</a> ";
+                        Result = OpenLocalFolder;
+                    } else {  //基本は、Openでファイルを開く
+                        const MdOpen = "<a href='javascript:Open(\"" + href + "\")'>" + text + "</a> ";
+                        Result = MdOpen;
+                    }
+                    return Result;
+                };
+
+                if (xhr.status == 200){
+                    const html = marked(content, { renderer });
+                    Id('FileName').innerHTML = JSONObject.FullPath;
+                    Id('DateCreated').innerHTML = "作成日時:" + JSONObject.CreationTime;
+                    Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
+                    Id('Save').style.display = "none";
+                    //表示履歴
+                    setHistory(PageName);
+                    getHistory();
+                    SetPageName(PageName);
+                    SetContent(html);
+                    ShowEditLink();
+                }else{
+                    Edit(PageName);
+                } 
+            }
+            else if (ButtonID == 'Edit')
+            {
+                let html =
+                    "<form>"
+                    + "<textarea cols='120' rows='30' id='textarea' wrap='off'>" + "</textarea><br />"
+                    + "</form>";
+                SetPageName(PageName);
+                SetContent(html);
+                Id('textarea').innerHTML = content;
+                Id('Save').style.display = "inline";
+                HideEditLink();
+            } else if (ButtonID == 'Save') {
+                   Open(PageName);
+            }
+            else if (ButtonID == 'ALLPage') {
+                let html = marked(content);
+                Id('FileName').innerHTML = JSONObject.FullPath;
+                Id('DateCreated').innerHTML = "作成日時:" + JSONObject.CreationTime;
+                Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
+                Id('Save').style.display = "none";
+                //表示履歴
+                setHistory(PageName);
+                getHistory();
+                SetPageName(PageName);
+                SetContent(html);
+                ShowEditLink();
+            }
+            else if (ButtonID == 'FindPage') {
+                let html = marked(content);
+                Id('FileName').innerHTML = JSONObject.FullPath;
+                Id('DateCreated').innerHTML = "作成日時:" + JSONObject.CreationTime;
+                Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
+                //表示履歴
+                setHistory(PageName);
+                getHistory();
+                SetPageName(PageName);
+                SetContent(html);
+                ShowEditLink();
+            } else if (ButtonID == 'OpenFolder') {
+//                alert(content);　//PowerShell側で処理が完結するため、何もしない
+            } else if (ButtonID == 'NewPage') {
+                alert('NewPage');
+                let html =
+                    "<form>"
+                    + "<textarea cols='120' rows='30' id='textarea' wrap='off'>" + "</textarea><br />"
+                    + "</form>";
+                SetPageName(PageName);
+                SetContent(html);
+                Id('textarea').innerHTML = content;
+                Id('Save').style.display = "inline";
+                HideEditLink();
+            } else if (ButtonID == 'ReNamePage') {
+                SetPageName(PageName);
+                Id('FileName').innerHTML = JSONObject.FullPath;
+                Id('DateCreated').innerHTML = "作成日時:" + JSONObject.CreationTime;
+                Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
+                Id('Save').style.display = "none";
+                //表示履歴
+                setHistory(PageName);
+                getHistory();
+                SetPageName(PageName);
+                SetContent(html);
+                ShowEditLink();
+            } else if (ButtonID == 'DeletePage') {
+                 window.alert(PageName + ' を削除しました。');
+                PageName = 'トップページ';
+                Open(PageName);
+            }
+         }
+         ClickName = JSONObject.ButtonID
+         Id('NewWorkStat').innerHTML = ClickName + " onload:" + xhr.status;
+         return;
+    };
+    xhr.onerror = () => {
+        let Content = ClickName + " onerror:" + xhr.status;
+        Id('NewWorkStat').innerHTML = Content;
+    }
+    xhr.onabort = () => {
+        let Content = ClickName + " onabort:" + xhr.status;
+        Id('NewWorkStat').innerHTML = Content;
+    }
+    xhr.ontimeout = () => {
+        let Content =  ClickName + " ontimeout:" + xhr.status;
+        Id('NewWorkStat').innerHTML = Content;
+        return;
+    }
+    xhr.onprogress = function () {
+        let Content = ClickName + " onprogress:" + xhr.status;
+        Id('NewWorkStat').innerHTML = Content;
+    };
+
+    //HTMLの要素を取得する
+    function Id(S) {
+        return document.getElementById(S);
+    }
+    //画面のページ名を取得する
+    function GetPageName() {
+        return Id('headerH1').innerText;
+    }
+    //ボタンにクリックイベントを登録
+    document.addEventListener('DOMContentLoaded', function () {
+        let btns = document.querySelectorAll('.Button');
+        for (let i = 0; i < btns.length; i++) {
+            btns[i].addEventListener('click', function () {
+                OnButtonClick(this);
+            }, false);
+        }
+    }, false);
+    //ButtonId取得
+    function GetMyButtonId(Button) {
+        let Btns = document.querySelectorAll('.Button');
+        let ButtonID = ''
+        for (let i = 0; i < Btns.length; i++) {
+            if (Btns[i].id == Button.id) {
+                ButtonID = Btns[i].id;
+                break;
+            }
+        }
+        return ButtonID;
+    }
+
+    //OnButtonClick から各種関数へ
+    function OnButtonClick(Button) {
+
+        ButtonID = GetMyButtonId(Button);
+        // alert(ButtonID + "ボタンがクリックされました！");
+        //各種機能処理へ
+        let PageName = ''
+        switch (ButtonID) {
+            case 'TopPage':
+                PageName = 'トップページ';
+                Open(PageName);
+                break;
+            case 'Edit':
+                PageName = GetPageName();
+                Edit(PageName);
+                break;
+            case 'Save':
+                PageName = GetPageName();
+                Save(PageName);
+                break;
+            case 'ALLPage':
+                PageName = "【ページ一覧】"
+                ALLPage(PageName);
+                break;
+            case 'FindPage':
+                PageName = "【検索結果】"
+                FindPage(PageName);
+                break;
+            case 'NewPage':
+                NewPage();
+                break;
+            case 'ReNamePage':
+                ReNamePage();
+                break;
+            case 'DeletePage':
+                DeletePage();
+                break;
+            case 'Larger':
+                Larger();
+                break;
+            case 'Smaller':
+                Smaller();
+                break;
+            default:
+                alert('未登録処理');
+        }
+    }
+    //ページを開く
+    function Open(PageName)
+    {
+        PostJSON('Open', PageName, null)   
+    }
+    //特殊　サーバ（power shell）からフォルダを開くように指示
+    function OpenFolder(PageName)
+    {
+        PostJSON('OpenFolder', PageName, null)
+    }
+    //修正
+    function Edit(PageName) {
+        PostJSON('Edit', PageName, null)
+    }
+    //ページ一覧
+    function ALLPage(PageName) {
+        PostJSON('ALLPage', PageName, null)
+    }
+    //検索
+    function FindPage(PageName) {
+        let Content = Id('Text1').value;  //検索対象
+        PostJSON('FindPage', PageName, Content)
+    }
+    //保存
+    function Save(PageName) {
+        let Content = Id('textarea').value;  //Save対象コンテンツ
+        PostJSON('Save', PageName, Content);
+    }
+    //新規作成
+    function NewPage() {
+        let PageName = Text2.value;
+        if (PageName != "") {
+            if (window.confirm(PageName + 'を作成しますか？')) {
+                if (PageName) {
+                    PostJSON('NewPage', PageName, null);
+                }
+            }
+            else {
+                window.alert('キャンセルされました。'); // 警告ダイアログを表示
+            }
+        }
+        Text2.value = '';
+    }
+
+    //リネーム
+    function ReNamePage() {
+        let SrcPagename = GetPageName();
+        let DstPagename = Text2.value;
+        if (PageName != "") {
+            // 「OK」時の処理開始 ＋ 確認ダイアログの表示
+            if (window.confirm(SrcPagename + 'を' + DstPagename + ' にリネームしますか？')) {
+                let SrcFileName = '/doc/' + SrcPagename + '.md';
+                PostJSON('ReNamePage', DstPagename, SrcFileName);
+            }
+            else {
+                window.alert('キャンセルされました。'); // 警告ダイアログを表示
+            }
+        }
+        Text2.value = '';
+    }
+    //削除
+    function DeletePage() {
+        let PageName = Text2.value;
+        if (PageName != "") {
+            if (window.confirm(PageName + 'を削除しますか？')) {
+                if (PageName) {
+                    PostJSON('DeletePage', PageName, null);
+                }
+            }
+            else {
+                window.alert('キャンセルされました。'); // 警告ダイアログを表示
+            }
+        }
+        Text2.value = '';
+    }
+    //JSON作成　サーバとのI/Fメッセージ
+    function PostJSON(ButtonID, PageName, Content)
+    {
+        let FileName = '/doc/' + PageName + '.md';
+        let Hash = [];
+        let Msg = new Object();
+        Msg.ButtonID = ButtonID;
+        Msg.FileName = encodeURIComponent(FileName);
+        Msg.PageName = encodeURIComponent(PageName);
+        if ( Content != null ){
+            Msg.Content = encodeURIComponent(Content);
+        }
+        Hash.push(Msg);
+        let json = JSON.stringify(Hash);
+        doPostJson(FileName, json)
+    }
+    //JSONをPost
+    function doPostJson(url, data) {    
+        xhr.open("POST", url);
+        xhr.setRequestHeader("Content-Type", "application/json");
+        xhr.send(data);
+    }
+
+    //メニューの「編集」リンクを表示する
+    function ShowEditLink() {
+        Id('Edit').style.display = "inline";
+    }
+
+    //メニューの「編集」リンクを非表示にする
+    function HideEditLink() {
+        Id('Edit').style.display = "none";
+    }
+
+    //コンテンツを画面に表示する
+    function SetContent(html) {
+        Id('content').innerHTML = html;
+    }
+
+    //ページ名を画面に表示する
+    function SetPageName(PageName) {
+        if (PageName) {
+            Id('headerH1').innerText = PageName;
+        }
+    }
+
+    //画面のページ名を取得する
+    function GetPageName() {
+        return Id('headerH1').innerText;
+    }
+
+    //履歴保存
+    function setHistory(pagename) {
+
+        //スタックに履歴を保存
+        if (0 == pageNameStack.length) {
+            //初回は無条件で保存
+            pageNameStack.push(pagename);
+        } else {
+            //保存されている履歴外のみ保存
+            let matched = false;
+            for (let i = 0; i < pageNameStack.length; i++) {
+                let tmp = pageNameStack[i];
+                if (tmp == pagename) {
+                    matched = true;
+                }
+            }
+            if (matched == false) {
+                pageNameStack.push(pagename);
+            }
+        }
+    }
+    //履歴取得
+    function getHistory() {
+        //スタック内の履歴を表示
+        let html = "表示履歴："
+        for (let i = 0; i < pageNameStack.length; i++) {
+            let PageName = pageNameStack[i];
+            html = html + "<a href='javascript:Open(\"" + PageName + "\")'>" + PageName + "</a> ";
+        }
+        html = html + " ";
+        Id('history').innerHTML = html;
+    }    
+</script>
+</html>
