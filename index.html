@@ -122,38 +122,38 @@
             LastWriteTime = String(JSONObject.LastWriteTime);
             ButtonID = String(JSONObject.ButtonID);
             PageName = String(JSONObject.PageName);
-            
+
+             //Markedのrendererを書き換え好みにlinkにする。
+             const renderer = new marked.Renderer();
+             const linkRenderer = renderer.link;
+             renderer.link = (href, title, text) => {
+                 let Result = '';
+                 if (href.match(/^(mailto|http|https|ftp|file):*/ig)) {　 //リンクは別タブに出力　_blank追加
+
+                     const html = linkRenderer.call(renderer, href, title, text);
+                     const html_blank = html.replace(/^<a /, `<a target="_blank" rel="noreferrer noopener nofollow" `);
+                     Result = html_blank;
+                 }
+                 else if (href.match(/^\\/ig))　//windows 汎用命名規則 (UNC)対応　先頭が\をサーバとみなす。 
+                 {
+                     const html = linkRenderer.call(renderer, href, title, text);
+                     aa = href.replace(/\\/, "\\\\");
+                     href = aa.replace(/\\/g, "&#092;&#092;");
+                     const OpenFolder = "<a href='javascript:OpenFolder(\"" + href + "\")'>" + text + "</a> ";
+                     Result = OpenFolder;
+                 } else if (href.match(/^[A-Z]\:/i)) { //Windows のファイルパス対応 C:\等　はフォルダとみなす
+                     aa = href.replace(/\\/g, "&#092;&#092;");
+                     const OpenLocalFolder = "<a href='javascript:OpenFolder(\"" + aa + "\")'>" + text + "</a> ";
+                     Result = OpenLocalFolder;
+                 } else {  //基本は、Openでファイルを開く
+                     const MdOpen = "<a href='javascript:Open(\"" + href + "\")'>" + text + "</a> ";
+                     Result = MdOpen;
+                 }
+                 return Result;
+             };
+
             if( ButtonID == 'Open')
             {
-                //Markedのrendererを書き換え好みにlinkにする。
-                const renderer = new marked.Renderer();
-                const linkRenderer = renderer.link;
-                renderer.link = (href, title, text) => {
-                    let Result=''; 
-                    if (href.match(/^(mailto|http|https|ftp|file):*/ig)) {　 //リンクは別タブに出力　_blank追加
-
-                        const html = linkRenderer.call(renderer, href, title, text);
-                        const html_blank = html.replace(/^<a /, `<a target="_blank" rel="noreferrer noopener nofollow" `);
-                        Result = html_blank;
-                    }
-                    else if(href.match(/^\\/ig))　//windows 汎用命名規則 (UNC)対応　先頭が\をサーバとみなす。 
-                    {
-                        const html = linkRenderer.call(renderer, href, title, text);
-                        aa = href.replace(/\\/, "\\\\");
-                        href = aa.replace(/\\/g, "&#092;&#092;");                                                                   
-                        const OpenFolder = "<a href='javascript:OpenFolder(\"" + href + "\")'>" + text + "</a> ";
-                        Result = OpenFolder;
-                    }else if( href.match(/^[A-Z]/i)){ //Windows のファイルパス対応 C:\等　はフォルダとみなす
-                        aa = href.replace(/\\/g, "&#092;&#092;");
-                        const OpenLocalFolder = "<a href='javascript:OpenFolder(\"" + aa + "\")'>" + text + "</a> ";
-                        Result = OpenLocalFolder;
-                    } else {  //基本は、Openでファイルを開く
-                        const MdOpen = "<a href='javascript:Open(\"" + href + "\")'>" + text + "</a> ";
-                        Result = MdOpen;
-                    }
-                    return Result;
-                };
-
                 if (xhr.status == 200){
                     const html = marked(content, { renderer });
                     Id('FileName').innerHTML = JSONObject.FullPath;
@@ -185,7 +185,7 @@
                    Open(PageName);
             }
             else if (ButtonID == 'ALLPage') {
-                let html = marked(content);
+                const html = marked(content, { renderer });
                 Id('FileName').innerHTML = JSONObject.FullPath;
                 Id('DateCreated').innerHTML = "作成日時:" + JSONObject.CreationTime;
                 Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
@@ -198,7 +198,7 @@
                 ShowEditLink();
             }
             else if (ButtonID == 'FindPage') {
-                let html = marked(content);
+                const html = marked(content, { renderer });
                 Id('FileName').innerHTML = JSONObject.FullPath;
                 Id('DateCreated').innerHTML = "作成日時:" + JSONObject.CreationTime;
                 Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
@@ -211,7 +211,6 @@
             } else if (ButtonID == 'OpenFolder') {
 //                alert(content);　//PowerShell側で処理が完結するため、何もしない
             } else if (ButtonID == 'NewPage') {
-                alert('NewPage');
                 let html =
                     "<form>"
                     + "<textarea cols='120' rows='30' id='textarea' wrap='off'>" + "</textarea><br />"
@@ -221,6 +220,7 @@
                 Id('textarea').innerHTML = content;
                 Id('Save').style.display = "inline";
                 HideEditLink();
+                Text2.value = '';
             } else if (ButtonID == 'ReNamePage') {
                 SetPageName(PageName);
                 Id('FileName').innerHTML = JSONObject.FullPath;
@@ -228,15 +228,18 @@
                 Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
                 Id('Save').style.display = "none";
                 //表示履歴
+                alert(PageName);
                 setHistory(PageName);
                 getHistory();
-                SetPageName(PageName);
-                SetContent(html);
+//                SetPageName(PageName);
+//                SetContent(html);
                 ShowEditLink();
+                Text2.value = '';
             } else if (ButtonID == 'DeletePage') {
-                 window.alert(PageName + ' を削除しました。');
+                window.alert(PageName + ' を削除しました。');
                 PageName = 'トップページ';
                 Open(PageName);
+                Text2.value = '';
             }
          }
          ClickName = JSONObject.ButtonID
@@ -379,14 +382,13 @@
                 window.alert('キャンセルされました。'); // 警告ダイアログを表示
             }
         }
-        Text2.value = '';
     }
 
     //リネーム
     function ReNamePage() {
         let SrcPagename = GetPageName();
         let DstPagename = Text2.value;
-        if (PageName != "") {
+        if (DstPagename != "") {
             // 「OK」時の処理開始 ＋ 確認ダイアログの表示
             if (window.confirm(SrcPagename + 'を' + DstPagename + ' にリネームしますか？')) {
                 let SrcFileName = '/doc/' + SrcPagename + '.md';
@@ -396,7 +398,6 @@
                 window.alert('キャンセルされました。'); // 警告ダイアログを表示
             }
         }
-        Text2.value = '';
     }
     //削除
     function DeletePage() {
@@ -411,7 +412,6 @@
                 window.alert('キャンセルされました。'); // 警告ダイアログを表示
             }
         }
-        Text2.value = '';
     }
     //JSON作成　サーバとのI/Fメッセージ
     function PostJSON(ButtonID, PageName, Content)

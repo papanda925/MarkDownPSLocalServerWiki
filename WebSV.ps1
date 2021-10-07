@@ -86,18 +86,13 @@ class MyWebSV {
                 write-host 'Loop Count:' $MyWebSV.Count
                 write-host 'HttpMethod:' $Request.HttpMethod
                 write-host 'Cookies:' $Request.Cookies
-                write-host 'RawUrl:' $Request.RawUrl
-                
-                [System.Web.HttpUtility]::UrlEncode("あ")
+                write-host 'RawUrl:' $Request.RawUrl                
                 $decodeUrl =  [System.Web.HttpUtility]::UrlDecode($Context.Request.RawUrl)
-
-
                 Write-Host $decodeUrl
                 write-host 'ContentType:' $Request.ContentType
                 
                 [string]$Content = $null
                 if ( $Context.Request.HttpMethod -eq 'GET'){
-
                     write-host 'GETMethod'
                     $Content = $MyWebSV.GETMethod($Context)
 
@@ -163,7 +158,6 @@ class MyWebSV {
         $Content = $null
 
         if ( $Context.Request.ContentType -eq 'application/json' ) {
-
             #レスポンス用Hash初期値
             $ResponseHash = @{
                 ButtonID      = "-"
@@ -178,96 +172,102 @@ class MyWebSV {
             #index.htmlからの指示指示情報(JSON形式　ButtonID、FileName)を取得
             [System.IO.Stream]$body = $Request.InputStream
             [System.Text.Encoding]$encoding = $request.ContentEncoding
-            [System.IO.StreamReader]$reader = [System.IO.StreamReader]::new($body, $encoding)
-            $RequestText = $reader.ReadToEnd()
+            [System.IO.StreamReader]$StreamReader = [System.IO.StreamReader]::new($body, $encoding)
+            $RequestText = $StreamReader.ReadToEnd()
+            $StreamReader.Close()
+            $body.Close()
+
+            #ワーク変数
             $RequestHash = (ConvertFrom-Json $RequestText)
             $ButtonID = $RequestHash.ButtonID
             $PageName = [System.Web.HttpUtility]::UrlDecode($RequestHash.PageName)
             $FileName = [System.Web.HttpUtility]::UrlDecode($RequestHash.FileName)
+
+
             $ResponseHash.ButtonID = $ButtonID
             $ResponseHash.PageName = $PageName
+            $ResponseHash.FileName = $FileName 
+
+             write-host 'TargetButtonID：' $ButtonID
             if ($ButtonID -eq 'Save') {
-                $Content = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
+                $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
                 $FileName = $Request.Url.LocalPath
                 $FullPath = Join-Path $PSScriptRoot $FileName
-
-                write-host 'savefile=' $FullPath
+                write-host 'Savefile=' $FullPath
                 $StreamWriter = New-Object System.IO.StreamWriter($FullPath, $false, [Text.Encoding]::GetEncoding("UTF-8"))
                 # テキスト書き込み
-                $StreamWriter.WriteLine($Content)
+                $StreamWriter.WriteLine($RequestContent)
                 # ファイルストリームクローズ
                 $StreamWriter.Close()
-
             }
             if ($ButtonID -eq 'ALLPage') {
                 $FileName = $Request.Url.LocalPath
-                $CheckPath = Join-Path $PSScriptRoot "/doc"
+                $CheckPath = Join-Path $PSScriptRoot "/doc/"
                 $FullPath = Join-Path $PSScriptRoot $FileName
-                $AllPages = Get-ChildItem -path  $CheckPath *.md | Select-Object name, CreationTime, LastWriteTime 
-                Write-Host $AllPages                    
-                    
+                $AllPages = Get-ChildItem -path  $CheckPath *.md | Select-Object name, CreationTime, LastWriteTime                     
+                #出力結果作成　Markdownの文法で
                 [string]$AllData = $null                    
                 $AllData += '|FileName|CreationTime|LastWriteTime|' + [Environment]::NewLine
                 $AllData += '|:-|:-|:-|' + [Environment]::NewLine                    
                 for ($i = 0; $i -lt $AllPages.Count; $i++) {
-                    $lineData = '|[' + '/doc/' + $AllPages[$i].Name + '](' + '/doc/' + $AllPages[$i].Name + ')|' + $AllPages[$i].CreationTime.tostring() + '|' + $AllPages[$i].LastWriteTime.tostring() + '|' + [Environment]::NewLine
+                    $FileNameWithoutExtension = [System.IO.Path]::GetFileNameWithoutExtension($AllPages[$i].Name)
+                    $lineData = '|[' + $FileNameWithoutExtension + '](' + $FileNameWithoutExtension + ')|' + $AllPages[$i].CreationTime.tostring() + '|' + $AllPages[$i].LastWriteTime.tostring() + '|' + [Environment]::NewLine
                     $AllData += $lineData 
                 }
+                #出力
                 $UTF8NoBomEnc = New-Object System.Text.UTF8Encoding $False
                 [System.IO.File]::WriteAllLines($FullPath, $AllData, $UTF8NoBomEnc)
-
-                }
+            }
             if ($ButtonID -eq 'FindPage') {
-                $Content = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
+                $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
                 $FileName = $Request.Url.LocalPath
                 $FullPath = Join-Path $PSScriptRoot $FileName
                 $ResponseHash.FullPath = $FullPath
                 $CheckPath = Join-Path $PSScriptRoot "/doc/*"
                 [string]$AllData = '' 
                 $find = ''
-                if ('' -eq $Content)
+                if ('' -eq $RequestContent)
                 {
                     $AllData = 'Not Found'
-                }
-                else{
+                }else{
                     Write-Host '$CheckPath:' $CheckPath
-                    Write-Host '$Content:' $Content
-                    $find = Select-String -Path $CheckPath -Pattern $Content 
+                    Write-Host '$RequestContent:' $RequestContent
+                    $find = Select-String -Path $CheckPath -Pattern $RequestContent 
+                    #出力結果作成　Markdownの文法で                    
                     $AllData += '|FileName|LineNumber|Line|Pattern|' + [Environment]::NewLine
                     $AllData += '|:-|:-|:-|:-|' + [Environment]::NewLine                    
                     for ($i = 0; $i -lt $find.Count; $i++) {
-                        $lineData = '|[' + '/doc/' + $find[$i].Filename + '](' + '/doc/' + $find[$i].Filename + ')|' + $find[$i].LineNumber + '|' + $find[$i].Line + '|' + $find[$i].Pattern + '|' + [Environment]::NewLine
+                        $FileNameWithoutExtension = [System.IO.Path]::GetFileNameWithoutExtension($find[$i].Filename)
+                        $lineData = '|[' + $FileNameWithoutExtension + '](' + $FileNameWithoutExtension + ')|' + $find[$i].LineNumber + '|' + $find[$i].Line + '|' + $find[$i].Pattern + '|' + [Environment]::NewLine
                         $AllData += $lineData 
                     }
                 }
+                #出力
                 $UTF8NoBomEnc = New-Object System.Text.UTF8Encoding $False
                 [System.IO.File]::WriteAllLines($FullPath, $AllData, $UTF8NoBomEnc)
-
             }
             if ($ButtonID -eq 'OpenFolder') {
                 Write-Host 'OpenFolder' $PageName
                 #shell.open でフォルダを開く（よくVBSやVBAでやる方法）
                 $this.shell.Open($PageName)
-
-                #open folder は出力物（md)がないため、ここでOKに
+                #shell.openの戻り値がわからないため、実行＝OKとする。
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK
-                $ResponseHash.ButtonID = $ButtonID
                 $ResponseHash.content = 'Exec shell Open Target:' + $PageName
                 $ResponseHash.PageName = $PageName
-                $json = (ConvertTo-Json $ResponseHash)
-                $Content = $json
+#                $json = (ConvertTo-Json $ResponseHash)
+#                $Content = $json
             }
             if ($ButtonID -eq 'NewPage') {
-                $Content = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
+#                $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
                 $FileName = $Request.Url.LocalPath
                 $FullPath = Join-Path $PSScriptRoot $FileName
-                $ResponseHash.ButtonID = $ButtonID
+ #               $ResponseHash.ButtonID = $ButtonID
                 $ResponseHash.FullPath = $FullPath
                 $ResponseHash.content = ""
                 $ResponseHash.PageName = $PageName
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK
-                $json = (ConvertTo-Json $ResponseHash)
-                $Content = $json
+  #              $json = (ConvertTo-Json $ResponseHash)
+  #              $Content = $json
             }
             if ($ButtonID -eq 'ReNamePage') {
                 $SrcFileName = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
@@ -283,13 +283,16 @@ class MyWebSV {
             }
             if ($ButtonID -eq 'DeletePage') {
                 $FileName = $Request.Url.LocalPath
-                $FullPath = Join-Path $PSScriptRoot $FileName
-                
+                $FullPath = Join-Path $PSScriptRoot $FileName               
                 if (Test-Path $FullPath) {
                     Remove-Item -Path $FullPath 
+                }else {
+                    
                 }
+
             }
 
+            #ファイルがあれば更新
             $FileName = $Request.Url.LocalPath
             $FullPath = Join-Path $PSScriptRoot $FileName
             $ResponseHash.FullPath = $FullPath
@@ -297,21 +300,21 @@ class MyWebSV {
                 #読み込み
                 $streamReader = New-Object System.IO.StreamReader($FullPath, [System.Text.Encoding]::UTF8)
                 $ResponseText = $streamReader.ReadToEnd()
-                $body.Close()
                 $streamReader.Close()
 
                 $FileName = $Request.Url.LocalPath
                 $CreationTime = (Get-ItemProperty $FullPath).CreationTime.ToString()
                 $LastWriteTime = (Get-ItemProperty $FullPath).LastWriteTime.ToString()
                 #レスポンス用にJSONに値を詰め込む
-                $ResponseHash.ButtonID = $ButtonID
+#                $ResponseHash.ButtonID = $ButtonID
+#                $ResponseHash.PageName = $PageName
                 $ResponseHash.FullPath = $FullPath
                 $ResponseHash.CreationTime = $CreationTime
                 $ResponseHash.LastWriteTime = $LastWriteTime
                 $ResponseHash.content = $ResponseText
-                $ResponseHash.PageName = $PageName
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK
             }
+
             $json = (ConvertTo-Json $ResponseHash)
             $Content = $json
         }
