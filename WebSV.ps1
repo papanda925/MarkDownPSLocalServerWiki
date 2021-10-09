@@ -246,9 +246,9 @@ class MyWebSV {
                 $UTF8NoBomEnc = New-Object System.Text.UTF8Encoding $False
                 [System.IO.File]::WriteAllLines($FullPath, $AllData, $UTF8NoBomEnc)
             }
-            if ($ButtonID -eq 'OpenFolder') {
+            if ($ButtonID -eq 'ShellOpen') {
                 Write-Host 'OpenFolder' $PageName
-                #shell.open でフォルダを開く（よくVBSやVBAでやる方法）
+                #shell.open でフォルダやファイルを開く（よくVBSやVBAでやる方法）
                 $this.shell.Open($PageName)
                 #shell.openの戻り値がわからないため、実行＝OKとする。
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK

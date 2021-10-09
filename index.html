@@ -128,6 +128,7 @@
              const linkRenderer = renderer.link;
              renderer.link = (href, title, text) => {
                  let Result = '';
+              //   alert("href:" + href + "title:" + title + "text:" + text);
                  if (href.match(/^(mailto|http|https|ftp|file):*/ig)) {　 //リンクは別タブに出力　_blank追加
 
                      const html = linkRenderer.call(renderer, href, title, text);
@@ -139,12 +140,18 @@
                      const html = linkRenderer.call(renderer, href, title, text);
                      aa = href.replace(/\\/, "\\\\");
                      href = aa.replace(/\\/g, "&#092;&#092;");
-                     const OpenFolder = "<a href='javascript:OpenFolder(\"" + href + "\")'>" + text + "</a> ";
-                     Result = OpenFolder;
-                 } else if (href.match(/^[A-Z]\:/i)) { //Windows のファイルパス対応 C:\等　はフォルダとみなす
-                     aa = href.replace(/\\/g, "&#092;&#092;");
-                     const OpenLocalFolder = "<a href='javascript:OpenFolder(\"" + aa + "\")'>" + text + "</a> ";
-                     Result = OpenLocalFolder;
+                     const ShellOpen = "<a href='javascript:ShellOpen(\"" + href + "\")'>" + text + "</a> ";
+                     Result = ShellOpen;
+                 } else if (href.match(/^[A-Z]\:\\/i)) { //Windows のファイルパス対応 C:\等　はフォルダとみなす
+                     aa = href.replace(/\\/g, "&#092;&#092;"); //バックスラッシュに切り替え
+                    
+                     if( text != null){
+                         text = text.replace(/\%E3\%80\%80/g, "　");　//見た目を整える　全角スペース
+                         text = text.replace(/\%20/g, "　");　　　　　//見た目を整える　半角スペース
+                     } 
+                
+                     const ShelLocallOpen = "<a href='javascript:ShellOpen(\"" + aa + "\")'>" + text + "</a> ";
+                     Result = ShelLocallOpen;
                  } else {  //基本は、Openでファイルを開く
                      const MdOpen = "<a href='javascript:Open(\"" + href + "\")'>" + text + "</a> ";
                      Result = MdOpen;
@@ -155,7 +162,40 @@
             if( ButtonID == 'Open')
             {
                 if (xhr.status == 200){
-                    const html = marked(content, { renderer });
+                    let lines = content.split('\n');
+                    content = ''                    
+                    for (var i = 0; i < lines.length; i++) {
+                        if ( lines[i].match(/\[+/g) != null) {
+                            //全角、半角スペースが混じったリンク対応
+                            //全角スペース、半角スペースだけを一旦エンコード ＝＞  全角：\%E3\%80\%80
+                            //全角スペース、半角スペースだけを一旦エンコード ＝＞  全角：\%20
+                            let harf = lines[i].match(/\(.*?\)/g);
+                            let text = lines[i].match(/\[.*?\]/g);
+                            for(j = 0; j<= harf.length; j++ )
+                            {
+                                orgharf = String(harf[j]);
+                                cngharf = String(orgharf);
+                                cngharf = orgharf.replace(/　/g, encodeURIComponent("　"));
+                                cngharf = cngharf.replace(/ /g, encodeURIComponent(" ")); 
+                                lines[i] = lines[i].replace(orgharf, cngharf)
+                            } 
+                            for (j = 0; j <= text.length; j++) {
+                                orgtext = String(text[j]);
+                                cngtext = String(orgtext);
+                                cngtext = orgtext.replace(/　/g, encodeURIComponent("　"));
+                                cngtext = cngtext.replace(/ /g, encodeURIComponent(" "));
+                                lines[i] = lines[i].replace(orgtext, cngtext)
+                            }
+                            content += lines[i]
+                            content += '\r\n'
+                        } 
+                        else{
+                            content += lines[i];
+                            content += '\r\n'
+                        }
+                    }
+                    let html = marked(content, { renderer });
+
                     Id('FileName').innerHTML = JSONObject.FullPath;
                     Id('DateCreated').innerHTML = "作成日時:" + JSONObject.CreationTime;
                     Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
@@ -208,7 +248,7 @@
                 SetPageName(PageName);
                 SetContent(html);
                 ShowEditLink();
-            } else if (ButtonID == 'OpenFolder') {
+            } else if (ButtonID == 'ShellOpen') {
 //                alert(content);　//PowerShell側で処理が完結するため、何もしない
             } else if (ButtonID == 'NewPage') {
                 let html =
@@ -228,7 +268,6 @@
                 Id('DateLastModified').innerHTML = "更新日時:" + JSONObject.LastWriteTime;
                 Id('Save').style.display = "none";
                 //表示履歴
-                alert(PageName);
                 setHistory(PageName);
                 getHistory();
 //                SetPageName(PageName);
@@ -344,12 +383,15 @@
     //ページを開く
     function Open(PageName)
     {
+//        PageName = PageName.replace(/ /g, "　");
+//        PageName = PageName.replace(/ /g, " ");
+
         PostJSON('Open', PageName, null)   
     }
     //特殊　サーバ（power shell）からフォルダを開くように指示
-    function OpenFolder(PageName)
+    function ShellOpen(PageName)
     {
-        PostJSON('OpenFolder', PageName, null)
+        PostJSON('ShellOpen', PageName, null)
     }
     //修正
     function Edit(PageName) {
