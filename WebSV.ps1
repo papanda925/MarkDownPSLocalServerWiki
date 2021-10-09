@@ -104,6 +104,7 @@ class MyWebSV {
             }
             catch {
                 Write-Host ($_.Exception)
+                Write-Host ($_.Exception.Source )
                 $context.Response.Close()
                 $MyWebSV.Listener.Close()
                 break
@@ -181,18 +182,16 @@ class MyWebSV {
             $RequestHash = (ConvertFrom-Json $RequestText)
             $ButtonID = $RequestHash.ButtonID
             $PageName = [System.Web.HttpUtility]::UrlDecode($RequestHash.PageName)
-            $FileName = [System.Web.HttpUtility]::UrlDecode($RequestHash.FileName)
-
+            $RequestFileName = [System.Web.HttpUtility]::UrlDecode($RequestHash.FileName)
 
             $ResponseHash.ButtonID = $ButtonID
             $ResponseHash.PageName = $PageName
-            $ResponseHash.FileName = $FileName 
+            $ResponseHash.FileName = $RequestFileName 
 
              write-host 'TargetButtonID：' $ButtonID
             if ($ButtonID -eq 'Save') {
                 $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
-                $FileName = $Request.Url.LocalPath
-                $FullPath = Join-Path $PSScriptRoot $FileName
+                $FullPath = Join-Path $PSScriptRoot $RequestFileName
                 write-host 'Savefile=' $FullPath
                 $StreamWriter = New-Object System.IO.StreamWriter($FullPath, $false, [Text.Encoding]::GetEncoding("UTF-8"))
                 # テキスト書き込み
@@ -201,9 +200,8 @@ class MyWebSV {
                 $StreamWriter.Close()
             }
             if ($ButtonID -eq 'ALLPage') {
-                $FileName = $Request.Url.LocalPath
                 $CheckPath = Join-Path $PSScriptRoot "/doc/"
-                $FullPath = Join-Path $PSScriptRoot $FileName
+                $FullPath = Join-Path $PSScriptRoot $RequestFileName
                 $AllPages = Get-ChildItem -path  $CheckPath *.md | Select-Object name, CreationTime, LastWriteTime                     
                 #出力結果作成　Markdownの文法で
                 [string]$AllData = $null                    
@@ -220,8 +218,7 @@ class MyWebSV {
             }
             if ($ButtonID -eq 'FindPage') {
                 $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
-                $FileName = $Request.Url.LocalPath
-                $FullPath = Join-Path $PSScriptRoot $FileName
+                $FullPath = Join-Path $PSScriptRoot $RequestFileName
                 $ResponseHash.FullPath = $FullPath
                 $CheckPath = Join-Path $PSScriptRoot "/doc/*"
                 [string]$AllData = '' 
@@ -254,24 +251,17 @@ class MyWebSV {
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK
                 $ResponseHash.content = 'Exec shell Open Target:' + $PageName
                 $ResponseHash.PageName = $PageName
-#                $json = (ConvertTo-Json $ResponseHash)
-#                $Content = $json
             }
             if ($ButtonID -eq 'NewPage') {
-#                $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
-                $FileName = $Request.Url.LocalPath
-                $FullPath = Join-Path $PSScriptRoot $FileName
- #               $ResponseHash.ButtonID = $ButtonID
+                $FullPath = Join-Path $PSScriptRoot $RequestFileName
                 $ResponseHash.FullPath = $FullPath
                 $ResponseHash.content = ""
                 $ResponseHash.PageName = $PageName
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK
-  #              $json = (ConvertTo-Json $ResponseHash)
-  #              $Content = $json
             }
             if ($ButtonID -eq 'ReNamePage') {
                 $SrcFileName = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
-                $DstFileName = $Request.Url.LocalPath
+                $DstFileName = $RequestFileName
                 $SrcFullPath = Join-Path $PSScriptRoot $SrcFileName
                 $DstFullPath = Join-Path $PSScriptRoot $DstFileName
                 Write-Host 'src=' $SrcFullPath 
@@ -282,8 +272,7 @@ class MyWebSV {
                 }
             }
             if ($ButtonID -eq 'DeletePage') {
-                $FileName = $Request.Url.LocalPath
-                $FullPath = Join-Path $PSScriptRoot $FileName               
+                $FullPath = Join-Path $PSScriptRoot $RequestFileName               
                 if (Test-Path $FullPath) {
                     Remove-Item -Path $FullPath 
                 }else {
@@ -292,29 +281,24 @@ class MyWebSV {
 
             }
 
-            #ファイルがあれば更新
-            $FileName = $Request.Url.LocalPath
-            $FullPath = Join-Path $PSScriptRoot $FileName
+            $FullPath = Join-Path $PSScriptRoot $RequestFileName
             $ResponseHash.FullPath = $FullPath
+            Write-Host $FullPath
             if (Test-Path $FullPath) {
                 #読み込み
                 $streamReader = New-Object System.IO.StreamReader($FullPath, [System.Text.Encoding]::UTF8)
                 $ResponseText = $streamReader.ReadToEnd()
                 $streamReader.Close()
 
-                $FileName = $Request.Url.LocalPath
                 $CreationTime = (Get-ItemProperty $FullPath).CreationTime.ToString()
                 $LastWriteTime = (Get-ItemProperty $FullPath).LastWriteTime.ToString()
-                #レスポンス用にJSONに値を詰め込む
-#                $ResponseHash.ButtonID = $ButtonID
-#                $ResponseHash.PageName = $PageName
+                #レスポンス用にJSONに値を詰め込む、mdファイルがある場合
                 $ResponseHash.FullPath = $FullPath
                 $ResponseHash.CreationTime = $CreationTime
                 $ResponseHash.LastWriteTime = $LastWriteTime
                 $ResponseHash.content = $ResponseText
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK
             }
-
             $json = (ConvertTo-Json $ResponseHash)
             $Content = $json
         }

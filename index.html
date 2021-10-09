@@ -171,20 +171,23 @@
                             //全角スペース、半角スペースだけを一旦エンコード ＝＞  全角：\%20
                             let harf = lines[i].match(/\(.*?\)/g);
                             let text = lines[i].match(/\[.*?\]/g);
-                            for(j = 0; j<= harf.length; j++ )
-                            {
-                                orgharf = String(harf[j]);
-                                cngharf = String(orgharf);
-                                cngharf = orgharf.replace(/　/g, encodeURIComponent("　"));
-                                cngharf = cngharf.replace(/ /g, encodeURIComponent(" ")); 
-                                lines[i] = lines[i].replace(orgharf, cngharf)
-                            } 
-                            for (j = 0; j <= text.length; j++) {
-                                orgtext = String(text[j]);
-                                cngtext = String(orgtext);
-                                cngtext = orgtext.replace(/　/g, encodeURIComponent("　"));
-                                cngtext = cngtext.replace(/ /g, encodeURIComponent(" "));
-                                lines[i] = lines[i].replace(orgtext, cngtext)
+                            if(harf != null ){
+                                for (j = 0; j <= harf.length; j++) {
+                                    orgharf = String(harf[j]);
+                                    cngharf = String(orgharf);
+                                    cngharf = orgharf.replace(/　/g, encodeURIComponent("　"));
+                                    cngharf = cngharf.replace(/ /g, encodeURIComponent(" "));
+                                    lines[i] = lines[i].replace(orgharf, cngharf)
+                                }
+                            }
+                            if (text != null) {
+                                for (j = 0; j <= text.length; j++) {
+                                    orgtext = String(text[j]);
+                                    cngtext = String(orgtext);
+                                    cngtext = orgtext.replace(/　/g, encodeURIComponent("　"));
+                                    cngtext = cngtext.replace(/ /g, encodeURIComponent(" "));
+                                    lines[i] = lines[i].replace(orgtext, cngtext)
+                                }
                             }
                             content += lines[i]
                             content += '\r\n'
@@ -385,6 +388,7 @@
     {
 //        PageName = PageName.replace(/ /g, "　");
 //        PageName = PageName.replace(/ /g, " ");
+        alert(PageName);
 
         PostJSON('Open', PageName, null)   
     }
@@ -459,6 +463,7 @@
     function PostJSON(ButtonID, PageName, Content)
     {
         let FileName = '/doc/' + PageName + '.md';
+        alert(FileName);
         let Hash = [];
         let Msg = new Object();
         Msg.ButtonID = ButtonID;
