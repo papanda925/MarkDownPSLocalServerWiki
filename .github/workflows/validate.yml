@@ -13,5 +13,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Parse and validate PowerShell and browser sources
-        shell: powershell
-        run: .\Tests\Test-Repository.ps1
+        shell: pwsh
+        run: ./Tests/Test-Repository.ps1
