@@ -94,15 +94,12 @@
 
     //エラーハンドリング
     window.addEventListener('error', function (e) {
-        var stack = e.error.stack;
-        let message = e.error.toString();
+        const stack = e.error && e.error.stack;
+        let message = e.message || 'JavaScript error';
         if (stack) {
             message += '\n' + stack;
         }
-        let xhr = new XMLHttpRequest();
         alert(message);
-      //  xhr.open('POST', '/log', true);
-      //  xhr.send(message);
     });
 
     //XMLHttpRequestのコールバック一式    
@@ -112,16 +109,16 @@
     }
     //XMLHttpRequestのコールバック　要の処理
     xhr.onload = () => {
-        let ResultContent = '';
-         if("application/json" == xhr.getResponseHeader("Content-Type") )
+        const responseContentType = xhr.getResponseHeader("Content-Type") || '';
+         if(responseContentType.toLowerCase().startsWith("application/json"))
          {
-            JSONObject =  JSON.parse(xhr.responseText);
+            const JSONObject = JSON.parse(xhr.responseText);
             //サーバからJsonで受けたパラメータを取得、各種ButtonID毎に処理実行
-            content = String(JSONObject.content);
-            CreationTime = String(JSONObject.CreationTime);
-            LastWriteTime = String(JSONObject.LastWriteTime);
-            ButtonID = String(JSONObject.ButtonID);
-            PageName = String(JSONObject.PageName);
+            let content = String(JSONObject.content);
+            const CreationTime = String(JSONObject.CreationTime);
+            const LastWriteTime = String(JSONObject.LastWriteTime);
+            const ButtonID = String(JSONObject.ButtonID);
+            let PageName = String(JSONObject.PageName);
 
              //Markedのrendererを書き換え好みにlinkにする。
              const renderer = new marked.Renderer();
@@ -325,21 +322,13 @@
     }, false);
     //ButtonId取得
     function GetMyButtonId(Button) {
-        let Btns = document.querySelectorAll('.Button');
-        let ButtonID = ''
-        for (let i = 0; i < Btns.length; i++) {
-            if (Btns[i].id == Button.id) {
-                ButtonID = Btns[i].id;
-                break;
-            }
-        }
-        return ButtonID;
+        return Button.id;
     }
 
     //OnButtonClick から各種関数へ
     function OnButtonClick(Button) {
 
-        ButtonID = GetMyButtonId(Button);
+        const ButtonID = GetMyButtonId(Button);
         // alert(ButtonID + "ボタンがクリックされました！");
         //各種機能処理へ
         let PageName = ''
@@ -459,7 +448,6 @@
     function PostJSON(ButtonID, PageName, Content)
     {
         let FileName = '/doc/' + PageName + '.md';
-        alert(FileName);
         let Hash = [];
         let Msg = new Object();
         Msg.ButtonID = ButtonID;
@@ -499,11 +487,6 @@
         if (PageName) {
             Id('headerH1').innerText = PageName;
         }
-    }
-
-    //画面のページ名を取得する
-    function GetPageName() {
-        return Id('headerH1').innerText;
     }
 
     //履歴保存
