@@ -46,6 +46,43 @@ function New-ScriptblockCallback {
 # もし、New-ScriptblockCallback.ps１をリンクする場合は、移植コードをカットし、↓をコメントアウト
 #. ".\\New-ScriptblockCallback.ps1"
 
+# ブラウザーから受け取った相対パスを、Wikiフォルダー内の絶対パスへ変換する。
+# GetFullPathで「..」を解決した後にルート配下か確認し、パストラバーサルを防止する。
+function Resolve-WikiPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath,
+
+        [switch]$MarkdownOnly
+    )
+
+    $directorySeparator = [System.IO.Path]::DirectorySeparatorChar
+    $repositoryRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
+    $repositoryPrefix = $repositoryRoot.TrimEnd($directorySeparator) + $directorySeparator
+    $normalizedRelativePath = $RelativePath.Replace('/', $directorySeparator).TrimStart([char[]]@($directorySeparator))
+    $candidatePath = [System.IO.Path]::GetFullPath(
+        [System.IO.Path]::Combine($repositoryRoot, $normalizedRelativePath)
+    )
+
+    if (-not $candidatePath.StartsWith($repositoryPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "The requested path is outside the wiki folder."
+    }
+
+    if ($MarkdownOnly) {
+        $documentRoot = [System.IO.Path]::GetFullPath(
+            [System.IO.Path]::Combine($repositoryRoot, 'doc')
+        )
+        $documentPrefix = $documentRoot.TrimEnd($directorySeparator) + $directorySeparator
+        $isMarkdown = [System.IO.Path]::GetExtension($candidatePath) -ieq '.md'
+
+        if (-not $candidatePath.StartsWith($documentPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or -not $isMarkdown) {
+            throw "Wiki pages must be .md files inside the doc folder."
+        }
+    }
+
+    return $candidatePath
+}
+
 class MyWebSV {
     
     [String]$Name
@@ -60,10 +97,11 @@ class MyWebSV {
                 $AsyncResult
             )
 
+            [System.Net.HttpListenerContext]$Context = $null
+            [MyWebSV]$MyWebSV = $null
             try {
-                [MyWebSV]$MyWebSV = $AsyncResult.AsyncState
+                $MyWebSV = $AsyncResult.AsyncState
                 [Net.HttpListener]$listener = $MyWebSV.Listener
-                [System.Net.HttpListenerContext]$Context
                 $Context = $Listener.EndGetContext($AsyncResult)
                 [System.Net.HttpListenerRequest]$Request = $Context.Request
                 [System.Net.HttpListenerResponse]$Response = $context.Response
@@ -73,21 +111,15 @@ class MyWebSV {
                     exit
                 }
 
-                if ( $null -eq $Context) {
-                    $Response.Close()
-                    $MyWebSV.Listener.Close()
-                    break
-                }
-                
                 #再起処理
-                $MyWebSV.Listener.BeginGetContext($MyWebSV.ListenerCallback, $MyWebSV)
+                [void]$MyWebSV.Listener.BeginGetContext($MyWebSV.ListenerCallback, $MyWebSV)
                 
                 $MyWebSV.Count += 1
                 write-host 'Loop Count:' $MyWebSV.Count
                 write-host 'HttpMethod:' $Request.HttpMethod
                 write-host 'Cookies:' $Request.Cookies
                 write-host 'RawUrl:' $Request.RawUrl                
-                $decodeUrl =  [System.Web.HttpUtility]::UrlDecode($Context.Request.RawUrl)
+                $decodeUrl = [System.Net.WebUtility]::UrlDecode($Context.Request.RawUrl)
                 Write-Host $decodeUrl
                 write-host 'ContentType:' $Request.ContentType
                 
@@ -100,43 +132,46 @@ class MyWebSV {
                     write-host 'POSTMethod'
                     $Content = $MyWebSV.POSTMethod($Context)                    
                 }
-                $MyWebSV.SendContent($Context, $Content);
+                else {
+                    $Response.StatusCode = [System.Net.HttpStatusCode]::MethodNotAllowed
+                    $Content = '405 Method Not Allowed'
+                }
+                $MyWebSV.SendContent($Context, $Content)
             }
             catch {
-                Write-Host ($_.Exception)
-                Write-Host ($_.Exception.Source )
-                $context.Response.Close()
-                $MyWebSV.Listener.Close()
-                break
+                Write-Error $_.Exception
+                if ($null -ne $Context -and $null -ne $MyWebSV) {
+                    try {
+                        $Context.Response.StatusCode = [System.Net.HttpStatusCode]::InternalServerError
+                        $MyWebSV.SendContent($Context, '500 Internal Server Error')
+                    }
+                    catch {
+                        $Context.Response.Abort()
+                    }
+                }
             }
         })
 
     [string] GETMethod(
                 [System.Net.HttpListenerContext]$Context) 
     {
-        $Content = $null
-        [bool]$IsExist = $true
+        $Content = '404 Not Found'
         [System.Net.HttpListenerRequest]$Request = $Context.Request
         [System.Net.HttpListenerResponse]$Response = $context.Response
 
         #初期値
         $Response.StatusCode = [System.net.HttpStatusCode]::NotFound
-        $Content = '404 not Found'
         $FileName = $Request.Url.LocalPath
-        $FullPath = Join-Path $PSScriptRoot $FileName
-        #フォルダチェック
-        $RequestedItem = Get-Item -LiteralPath $FullPath
-        if ($RequestedItem.Attributes -match "Directory") {
-            $IsExist = $false
+        try {
+            $FullPath = Resolve-WikiPath -RelativePath $FileName
         }
-        #ファイル存在チェック
-        if (!(Test-Path $FullPath)) {
-            $IsExist = $false
+        catch {
+            $Response.StatusCode = [System.Net.HttpStatusCode]::Forbidden
+            return '403 Forbidden'
         }
-        #チェックOKの場合、コンテンツ取得
-        if ($IsExist -eq $true) {
-            $streamReader = New-Object System.IO.StreamReader($FullPath, [System.Text.Encoding]::UTF8)
-            $Content = $streamReader.ReadToEnd()
+
+        if (Test-Path -LiteralPath $FullPath -PathType Leaf) {
+            $Content = [System.IO.File]::ReadAllText($FullPath, [System.Text.Encoding]::UTF8)
             $Response.StatusCode = [System.net.HttpStatusCode]::OK
         }
         return $Content
@@ -158,7 +193,7 @@ class MyWebSV {
         $Response.StatusCode = [System.net.HttpStatusCode]::NotFound
         $Content = $null
 
-        if ( $Context.Request.ContentType -eq 'application/json' ) {
+        if ($null -ne $Context.Request.ContentType -and $Context.Request.ContentType.StartsWith('application/json')) {
             #レスポンス用Hash初期値
             $ResponseHash = @{
                 ButtonID      = "-"
@@ -181,28 +216,41 @@ class MyWebSV {
             #ワーク変数
             $RequestHash = (ConvertFrom-Json $RequestText)
             $ButtonID = $RequestHash.ButtonID
-            $PageName = [System.Web.HttpUtility]::UrlDecode($RequestHash.PageName)
-            $RequestFileName = [System.Web.HttpUtility]::UrlDecode($RequestHash.FileName)
+            $PageName = [System.Net.WebUtility]::UrlDecode($RequestHash.PageName)
+            $RequestFileName = [System.Net.WebUtility]::UrlDecode($RequestHash.FileName)
 
             $ResponseHash.ButtonID = $ButtonID
             $ResponseHash.PageName = $PageName
             $ResponseHash.FileName = $RequestFileName 
 
-             write-host 'TargetButtonID：' $ButtonID
+            $allowedButtonIds = @('Open', 'Edit', 'Save', 'ALLPage', 'FindPage', 'ShellOpen', 'NewPage', 'ReNamePage', 'DeletePage')
+            if ($allowedButtonIds -notcontains $ButtonID) {
+                $Response.StatusCode = [System.Net.HttpStatusCode]::BadRequest
+                $ResponseHash.content = 'Unknown operation.'
+                return (ConvertTo-Json $ResponseHash)
+            }
+
+            $FullPath = $null
+            if ($ButtonID -ne 'ShellOpen') {
+                try {
+                    $FullPath = Resolve-WikiPath -RelativePath $RequestFileName -MarkdownOnly
+                }
+                catch {
+                    $Response.StatusCode = [System.Net.HttpStatusCode]::Forbidden
+                    $ResponseHash.content = $_.Exception.Message
+                    return (ConvertTo-Json $ResponseHash)
+                }
+            }
+
+            Write-Host 'TargetButtonID：' $ButtonID
             if ($ButtonID -eq 'Save') {
-                $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
-                $FullPath = Join-Path $PSScriptRoot $RequestFileName
+                $RequestContent = [System.Net.WebUtility]::UrlDecode($RequestHash.Content)
                 write-host 'Savefile=' $FullPath
-                $StreamWriter = New-Object System.IO.StreamWriter($FullPath, $false, [Text.Encoding]::GetEncoding("UTF-8"))
-                # テキスト書き込み
-                $StreamWriter.WriteLine($RequestContent)
-                # ファイルストリームクローズ
-                $StreamWriter.Close()
+                [System.IO.File]::WriteAllText($FullPath, $RequestContent, [System.Text.UTF8Encoding]::new($false))
             }
             if ($ButtonID -eq 'ALLPage') {
-                $CheckPath = Join-Path $PSScriptRoot "/doc/"
-                $FullPath = Join-Path $PSScriptRoot $RequestFileName
-                $AllPages = Get-ChildItem -path  $CheckPath *.md | Select-Object name, CreationTime, LastWriteTime                     
+                $CheckPath = Resolve-WikiPath -RelativePath 'doc'
+                $AllPages = Get-ChildItem -LiteralPath $CheckPath -Filter '*.md' -File | Select-Object Name, CreationTime, LastWriteTime
                 #出力結果作成　Markdownの文法で
                 [string]$AllData = $null                    
                 $AllData += '|FileName|CreationTime|LastWriteTime|' + [Environment]::NewLine
@@ -217,10 +265,9 @@ class MyWebSV {
                 [System.IO.File]::WriteAllLines($FullPath, $AllData, $UTF8NoBomEnc)
             }
             if ($ButtonID -eq 'FindPage') {
-                $RequestContent = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
-                $FullPath = Join-Path $PSScriptRoot $RequestFileName
+                $RequestContent = [System.Net.WebUtility]::UrlDecode($RequestHash.Content)
                 $ResponseHash.FullPath = $FullPath
-                $CheckPath = Join-Path $PSScriptRoot "/doc/*"
+                $CheckPath = Join-Path (Resolve-WikiPath -RelativePath 'doc') '*.md'
                 [string]$AllData = '' 
                 $find = ''
                 if ('' -eq $RequestContent)
@@ -253,45 +300,37 @@ class MyWebSV {
                 $ResponseHash.PageName = $PageName
             }
             if ($ButtonID -eq 'NewPage') {
-                $FullPath = Join-Path $PSScriptRoot $RequestFileName
                 $ResponseHash.FullPath = $FullPath
                 $ResponseHash.content = ""
                 $ResponseHash.PageName = $PageName
                 $Response.StatusCode = [System.net.HttpStatusCode]::OK
             }
             if ($ButtonID -eq 'ReNamePage') {
-                $SrcFileName = [System.Web.HttpUtility]::UrlDecode($RequestHash.Content)
-                $DstFileName = $RequestFileName
-                $SrcFullPath = Join-Path $PSScriptRoot $SrcFileName
-                $DstFullPath = Join-Path $PSScriptRoot $DstFileName
+                $SrcFileName = [System.Net.WebUtility]::UrlDecode($RequestHash.Content)
+                $SrcFullPath = Resolve-WikiPath -RelativePath $SrcFileName -MarkdownOnly
+                $DstFullPath = $FullPath
                 Write-Host 'src=' $SrcFullPath 
                 Write-Host 'dst=' $DstFullPath 
 
-                if (Test-Path $SrcFullPath) {
-                    Rename-Item -Path $SrcFullPath -NewName $DstFullPath
+                if (Test-Path -LiteralPath $SrcFullPath -PathType Leaf) {
+                    Move-Item -LiteralPath $SrcFullPath -Destination $DstFullPath
                 }
             }
             if ($ButtonID -eq 'DeletePage') {
-                $FullPath = Join-Path $PSScriptRoot $RequestFileName               
-                if (Test-Path $FullPath) {
-                    Remove-Item -Path $FullPath 
-                }else {
-                    
+                if (Test-Path -LiteralPath $FullPath -PathType Leaf) {
+                    Remove-Item -LiteralPath $FullPath
                 }
-
             }
 
-            $FullPath = Join-Path $PSScriptRoot $RequestFileName
             $ResponseHash.FullPath = $FullPath
             Write-Host $FullPath
-            if (Test-Path $FullPath) {
+            if ($null -ne $FullPath -and (Test-Path -LiteralPath $FullPath -PathType Leaf)) {
                 #読み込み
-                $streamReader = New-Object System.IO.StreamReader($FullPath, [System.Text.Encoding]::UTF8)
-                $ResponseText = $streamReader.ReadToEnd()
-                $streamReader.Close()
+                $ResponseText = [System.IO.File]::ReadAllText($FullPath, [System.Text.Encoding]::UTF8)
 
-                $CreationTime = (Get-ItemProperty $FullPath).CreationTime.ToString()
-                $LastWriteTime = (Get-ItemProperty $FullPath).LastWriteTime.ToString()
+                $fileInfo = Get-Item -LiteralPath $FullPath
+                $CreationTime = $fileInfo.CreationTime.ToString()
+                $LastWriteTime = $fileInfo.LastWriteTime.ToString()
                 #レスポンス用にJSONに値を詰め込む、mdファイルがある場合
                 $ResponseHash.FullPath = $FullPath
                 $ResponseHash.CreationTime = $CreationTime
@@ -302,31 +341,34 @@ class MyWebSV {
             $json = (ConvertTo-Json $ResponseHash)
             $Content = $json
         }
+        else {
+            $Response.StatusCode = [System.Net.HttpStatusCode]::UnsupportedMediaType
+            $Content = '{"content":"Content-Type must be application/json."}'
+        }
         return $Content
     }
 
     [void] SendContent(
         [System.Net.HttpListenerContext]$Context, $MyContent) 
     {
-        [System.Net.HttpListenerResponse]$Response = $context.Response
+        [System.Net.HttpListenerResponse]$Response = $Context.Response
         #ContentTypeに応じた出力方法の設定
-        if ( $Context.Request.ContentType -eq 'application/json' ) {
-            $Response.ContentType = "application/json"
-            $Content = $MyContent
-        }
-        elseif ( $Context.Request.ContentType -eq 'text/plain' ) {
-            $Content = $MyContent
-            $Response.ContentType = "text/plain"
-        }
-        elseif ( $Context.Request.ContentType -eq 'text/html' ) {
-            $Content = $MyContent
-            $Response.ContentType = "text/html"
+        if ($Context.Request.HttpMethod -eq 'POST') {
+            $Response.ContentType = 'application/json; charset=utf-8'
         }
         else {
-            $Content = $MyContent
-            $Response.ContentType = "text/html"
+            $extension = [System.IO.Path]::GetExtension($Context.Request.Url.LocalPath)
+            $Response.ContentType = switch ($extension.ToLowerInvariant()) {
+                '.css' { 'text/css; charset=utf-8' }
+                '.js' { 'text/javascript; charset=utf-8' }
+                '.html' { 'text/html; charset=utf-8' }
+                '.md' { 'text/markdown; charset=utf-8' }
+                default { 'text/plain; charset=utf-8' }
+            }
         }
+        $Content = [string]$MyContent
         $Bytes = [System.Text.Encoding]::UTF8.GetBytes($Content)
+        $Response.ContentLength64 = $Bytes.Length
         $Response.OutputStream.Write($Bytes, 0, $Bytes.Length)
         $Response.Close()
         $Response.Dispose()
@@ -349,7 +391,7 @@ class MyWebSV {
             $this.listener = [Net.HttpListener]::new()
             $this.listener.Prefixes.Add($this.UriPrefix)
             $this.listener.Start()
-            $IAsyncResult = $this.Listener.BeginGetContext($this.ListenerCallback, $this)
+            [void]$this.Listener.BeginGetContext($this.ListenerCallback, $this)
         }
         catch {
             Write-Error($_.Exception)
